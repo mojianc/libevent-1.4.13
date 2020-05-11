@@ -87,6 +87,7 @@ const struct eventop epollops = {
 
 #ifdef HAVE_SETFD
 #define FD_CLOSEONEXEC(x) do { \
+        //执行fcntl(epfd, F_SETFD, 1)，第三个参数FD_CLOEXEC为1表示：调用exec相关函数后文件句柄将被关闭
         if (fcntl(x, F_SETFD, 1) == -1) \
                 event_warn("fcntl(%d, F_SETFD)", x); \
 } while (0)
@@ -122,7 +123,7 @@ epoll_init(struct event_base *base)
 			event_warn("epoll_create");
 		return (NULL);
 	}
-
+    //执行fcntl(epfd, F_SETFD, 1)，第三个参数FD_CLOEXEC为1表示：调用exec相关函数后文件句柄将被关闭
 	FD_CLOSEONEXEC(epfd);
 
 	if (!(epollop = calloc(1, sizeof(struct epollop))))
@@ -145,7 +146,7 @@ epoll_init(struct event_base *base)
 		return (NULL);
 	}
 	epollop->nfds = INITIAL_NFILES;
-
+    //初始化socket pair
 	evsignal_init(base);
 
 	return (epollop);

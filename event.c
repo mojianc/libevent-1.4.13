@@ -185,9 +185,31 @@ event_base_new(void)
 	base->sig.ev_signal_pair[1] = -1;
 	
 	base->evbase = NULL;
+	//libevent 根据系统配置和编译选项决定使用哪一种 I/O demultiplex 机制,而不支持在运行阶段 根据配置再次选择
 	for (i = 0; eventops[i] && !base->evbase; i++) {
+		/**
+		 * base->evsel = epollops
+		 * const struct eventop epollops = {
+			"epoll",
+			epoll_init,
+			epoll_add,
+			epoll_del,
+			epoll_dispatch,
+			epoll_dealloc,
+			1  // need reinit 
+            };
+		 */
 		base->evsel = eventops[i];
-
+		/**
+		 * epollops->epoll_init() 初始化epoll,返回类型为epollop，如下：
+		 * struct epollop {
+			struct evepoll *fds;
+			int nfds;
+			struct epoll_event *events;
+			int nevents;
+			int epfd;
+		  };
+		*/
 		base->evbase = base->evsel->init(base);
 	}
 
@@ -310,6 +332,7 @@ event_priority_init(int npriorities)
   return event_base_priority_init(current_base, npriorities);
 }
 
+//在event_base_new()中被调用，第二个参数为1
 int
 event_base_priority_init(struct event_base *base, int npriorities)
 {

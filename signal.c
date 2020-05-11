@@ -68,6 +68,7 @@ struct event_base *evsignal_base = NULL;
 static void evsignal_handler(int sig);
 
 /* Callback for when the signal handler write a byte to our signaling socket */
+//信号事件的回调函数，读取来自于写socket的一个字节数据
 static void
 evsignal_cb(int fd, short what, void *arg)
 {
@@ -77,7 +78,7 @@ evsignal_cb(int fd, short what, void *arg)
 #else
 	ssize_t n;
 #endif
-
+    //接收一个字节
 	n = recv(fd, signals, sizeof(signals), 0);
 	if (n == -1)
 		event_err(1, "%s: read", __func__);
@@ -102,6 +103,7 @@ evsignal_init(struct event_base *base)
 	 * pair to wake up our event loop.  The event loop then scans for
 	 * signals that got delivered.
 	 */
+	//创建socket pair
 	if (evutil_socketpair(
 		    AF_UNIX, SOCK_STREAM, 0, base->sig.ev_signal_pair) == -1) {
 #ifdef WIN32
@@ -125,7 +127,7 @@ evsignal_init(struct event_base *base)
 		TAILQ_INIT(&base->sig.evsigevents[i]);
 
         evutil_make_socket_nonblocking(base->sig.ev_signal_pair[0]);
-
+    //设置信号事件，绑定读socket的句柄，读类型EV_READ | EV_PERSIST，回调函数evsignal_cb(),回调参数为：&base->sig.ev_signal
 	event_set(&base->sig.ev_signal, base->sig.ev_signal_pair[1],
 		EV_READ | EV_PERSIST, evsignal_cb, &base->sig.ev_signal);
 	base->sig.ev_signal.ev_base = base;

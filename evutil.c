@@ -60,7 +60,9 @@
 #include "event-internal.h"
 #include "evutil.h"
 #include "log.h"
-
+/**
+ * 在evsignal_init中调用，evutil_socketpair(AF_UNIX, SOCK_STREAM, 0, base->sig.ev_signal_pair)用来创建一对socket，读和写
+*/
 int
 evutil_socketpair(int family, int type, int protocol, int fd[2])
 {
@@ -94,34 +96,58 @@ evutil_socketpair(int family, int type, int protocol, int fd[2])
 		EVUTIL_SET_SOCKET_ERROR(WSAEINVAL);
 		return -1;
 	}
-
+    /**
+	 * int socket(int domain, int type, int protocol);
+	　　在参数表中，domain指定使用何种的地址类型，比较常用的有：
+	　　PF_INET, AF_INET： Ipv4网络协议；
+	　　PF_INET6, AF_INET6： Ipv6网络协议。
+	　　type参数的作用是设置通信的协议类型，可能的取值如下所示：
+	　　SOCK_STREAM： 提供面向连接的稳定数据传输，即TCP协议。
+	　　OOB： 在所有数据传送前必须使用connect()来建立连接状态。
+	　　SOCK_DGRAM： 使用不连续不可靠的数据包连接。UPD协议
+	　　SOCK_SEQPACKET： 提供连续可靠的数据包连接。
+	　　SOCK_RAW： 提供原始网络协议存取。
+	　　SOCK_RDM： 提供可靠的数据包连接。
+	　　SOCK_PACKET： 与网络驱动程序直接通信。e79fa5e98193e4b893e5b19e31333330336335
+	　　参数protocol用来指定socket所使用的传输协议编号。这一参数通常不具体设置，一般设置为0即可。
+	*/
+    //socket(AF_INET, SOCK_STREAM, 0);创建socket,IPV4,TCP协议
+	//socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP) 这个是创建UDP协议的socket
 	listener = socket(AF_INET, type, 0);
 	if (listener < 0)
 		return -1;
+	//清空sockaddr_in结构体
 	memset(&listen_addr, 0, sizeof(listen_addr));
 	listen_addr.sin_family = AF_INET;
+	//INADDR_LOOPBACK, 也就是绑定地址LOOPBAC, 往往是127.0.0.1, 只能收到127.0.0.1上面的连接请求
 	listen_addr.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 	listen_addr.sin_port = 0;	/* kernel chooses port.	 */
+	//绑定socket和监听listen_addr
 	if (bind(listener, (struct sockaddr *) &listen_addr, sizeof (listen_addr))
 		== -1)
 		goto tidy_up_and_fail;
+    //启动监听
 	if (listen(listener, 1) == -1)
 		goto tidy_up_and_fail;
-
+    
+	//相当于客户端socket
 	connector = socket(AF_INET, type, 0);
 	if (connector < 0)
 		goto tidy_up_and_fail;
 	/* We want to find out the port number to connect to.  */
 	size = sizeof(connect_addr);
+	//getsockname获取一个套接口的名字
 	if (getsockname(listener, (struct sockaddr *) &connect_addr, &size) == -1)
 		goto tidy_up_and_fail;
 	if (size != sizeof (connect_addr))
 		goto abort_tidy_up_and_fail;
+	//启动连接
 	if (connect(connector, (struct sockaddr *) &connect_addr,
 				sizeof(connect_addr)) == -1)
 		goto tidy_up_and_fail;
 
 	size = sizeof(listen_addr);
+	//连接，返回连接后的socket
 	acceptor = accept(listener, (struct sockaddr *) &listen_addr, &size);
 	if (acceptor < 0)
 		goto tidy_up_and_fail;

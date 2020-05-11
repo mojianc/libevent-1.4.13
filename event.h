@@ -211,26 +211,57 @@ struct {								\
 struct event_base;
 #ifndef EVENT_NO_STRUCT
 struct event {
-	TAILQ_ENTRY (event) ev_next;
+  // I/O 事件在链表中 的位置；称此链表为“已注册事件链表”； 
+	TAILQ_ENTRY (event) ev_next;   
+  // 将所有的激活事件放入到链表 active list 中，然后遍历 active list 执 行调度，ev_active_next 就指明了 event 在 active list 中的位置；                   
 	TAILQ_ENTRY (event) ev_active_next;
+  //signal 事件在 signal 事件链表中的位置
 	TAILQ_ENTRY (event) ev_signal_next;
+  //如果是 timeout 事件，它们是 event 在小根堆中的索引和超 时值，libevent 使用小根堆来管理定时事件，
 	unsigned int min_heap_idx;	/* for managing timeouts */
-
+  //该事件所属的反应堆实例，这是一个 event_base 结构体，
 	struct event_base *ev_base;
-
+  //对于 I/O 事件，是绑定的文件描述符；对于 signal 事件，是绑定的信号； 
 	int ev_fd;
+  /**
+   *ev_events：event关注的事件类型，它可以是以下3种类型：
+   *  I/O事件： EV_WRITE和EV_READ 
+   *  定时事件：EV_TIMEOUT 
+   *  信号：    EV_SIGNAL 
+   *  辅助选项：EV_PERSIST，表明是一个永久事件 
+   *Libevent中的定义为： 
+   *   #define EV_TIMEOUT 0x01 
+   *   #define EV_READ  0x02 
+   *   #define EV_WRITE 0x04 
+   *   #define EV_SIGNAL 0x08 
+   *   #define EV_PERSIST 0x10  
+   *   可以看出事件类型可以使用“|”运算符进行组合，需要说明的是，信号和I/O事件不能同时设置；
+   */ 
 	short ev_events;
+  //事件就绪执行时，调用 ev_callback 的次数，通常为 1； 
 	short ev_ncalls;
+  //指针，通常指向 ev_ncalls 或者为 NULL； 
 	short *ev_pncalls;	/* Allows deletes in callback */
 
 	struct timeval ev_timeout;
 
 	int ev_pri;		/* smaller numbers are higher priority */
-
+  //event 的回调函数，被 ev_base 调用，执行事件处理程序，这是一个函数指 针，原型为： void (*ev_callback)(int fd, short events, void *arg) 
+  //其中参数 fd 对应于 ev_fd；events 对应于 ev_events；arg 对应于 ev_arg； 
 	void (*ev_callback)(int, short, void *arg);
+  //void*，表明可以是任意类型的数据，在设置 event 时指定； 
 	void *ev_arg;
-
+  //记录了当前激活事件的类型； 
 	int ev_res;		/* result passed to event callback */
+  /**
+   * libevent 用于标记 event 信息的字段，表明其当前的状态，可能的值有： 
+   * #define EVLIST_TIMEOUT 0x01 // event在time堆中 
+   * #define EVLIST_INSERTED 0x02 // event在已注册事件链表中 
+   * #define EVLIST_SIGNAL 0x04 // 未见使用 
+   * #define EVLIST_ACTIVE 0x08 // event在激活链表中 
+   * #define EVLIST_INTERNAL 0x10 // 内部使用标记 
+   * #define EVLIST_INIT     0x80 // event 已被初始化 
+  */
 	int ev_flags;
 };
 #else

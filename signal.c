@@ -286,6 +286,7 @@ evsignal_del(struct event *ev)
 static void
 evsignal_handler(int sig)
 {
+	// 不覆盖原来的错误代码 
 	int save_errno = errno;
 
 	if (evsignal_base == NULL) {
@@ -294,16 +295,19 @@ evsignal_handler(int sig)
 			__func__, sig);
 		return;
 	}
-
+    // 记录信号sig的触发次数，并设置event触发标记 
 	evsignal_base->sig.evsigcaught[sig]++;
 	evsignal_base->sig.evsignal_caught = 1;
 
 #ifndef HAVE_SIGACTION
+    // 重新注册信号 
 	signal(sig, evsignal_handler);
 #endif
 
 	/* Wake up our notification mechanism */
+	// 向写socket写一个字节数据，触发event_base的I/O事件，从而通知其有 信号触发，需要处理 
 	send(evsignal_base->sig.ev_signal_pair[0], "a", 1, 0);
+	// 错误代码 
 	errno = save_errno;
 }
 

@@ -37,11 +37,11 @@ extern "C" {
 
 struct eventop {
 	const char *name;
-	void *(*init)(struct event_base *);
-	int (*add)(void *, struct event *);
-	int (*del)(void *, struct event *);
-	int (*dispatch)(struct event_base *, void *, struct timeval *);
-	void (*dealloc)(struct event_base *, void *);
+	void *(*init)(struct event_base *);   // 初始化 
+	int (*add)(void *, struct event *);   // 注册事件 
+	int (*del)(void *, struct event *);   // 删除事件 
+	int (*dispatch)(struct event_base *, void *, struct timeval *);  // 事件分发  
+	void (*dealloc)(struct event_base *, void *);   // 注销，释放资源 
 	/* set if we need to reinitialize the event base */
 	int need_reinit;
 };

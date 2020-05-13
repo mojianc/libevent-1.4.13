@@ -288,6 +288,12 @@ struct event_list;
 struct evkeyvalq;
 #undef _EVENT_DEFINED_TQENTRY
 #else
+/*
+ * struct event_list {								
+	    struct event *tqh_first;   //第一个元素		 
+	    struct event **tqh_last;	 //最后一个元素的地址	
+   }  
+ */
 TAILQ_HEAD (event_list, event);
 TAILQ_HEAD (evkeyvalq, evkeyval);
 #endif /* _EVENT_DEFINED_TQENTRY */
@@ -795,9 +801,9 @@ struct bufferevent {
 	struct event_watermark wm_read;
 	struct event_watermark wm_write;
 
-	evbuffercb readcb;
-	evbuffercb writecb;
-	everrorcb errorcb;
+	evbuffercb readcb;  //函数指针
+	evbuffercb writecb; //函数指针
+	everrorcb errorcb;  //函数指针
 	void *cbarg;
 
 	int timeout_read;	/* in seconds */

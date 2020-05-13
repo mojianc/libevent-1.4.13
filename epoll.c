@@ -188,6 +188,7 @@ epoll_dispatch(struct event_base *base, void *arg, struct timeval *tv)
 	int i, res, timeout = -1;
 
 	if (tv != NULL)
+	    //超时时间，单位ms,向上取整
 		timeout = tv->tv_sec * 1000 + (tv->tv_usec + 999) / 1000;
 
 	if (timeout > MAX_EPOLL_TIMEOUT_MSEC) {
@@ -195,55 +196,55 @@ epoll_dispatch(struct event_base *base, void *arg, struct timeval *tv)
 		 * see comment on MAX_EPOLL_TIMEOUT_MSEC. */
 		timeout = MAX_EPOLL_TIMEOUT_MSEC;
 	}
-
+    //events是用来接收返回的事件集合，res是集合中元素的个数，epollop->nevents表示events的容量，不能大于创建epoll_create()时的size
 	res = epoll_wait(epollop->epfd, events, epollop->nevents, timeout);
 
-	if (res == -1) {
-		if (errno != EINTR) {
+	if (res == -1) {  //返回-1,说明epoll_wait产生异常
+		if (errno != EINTR) {  //在超时或监听到事件发生前收到的不是中断信号
 			event_warn("epoll_wait");
 			return (-1);
 		}
 
 		evsignal_process(base); // 处理signal事件 
 		return (0);
-	} else if (base->sig.evsignal_caught) {
+	} else if (base->sig.evsignal_caught) {  　//监听的某种信号产生并处理
 		evsignal_process(base); // 处理signal事件 
 	}
 
 	event_debug(("%s: epoll_wait reports %d", __func__, res));
-
+    //events[i].events表示事件类型，events[i].data.fd表示句柄
 	for (i = 0; i < res; i++) {
 		int what = events[i].events;
 		struct event *evread = NULL, *evwrite = NULL;
-		int fd = events[i].data.fd;
+		int fd = events[i].data.fd;    //发生该事件的文件描述符
 
-		if (fd < 0 || fd >= epollop->nfds)
+		if (fd < 0 || fd >= epollop->nfds)  
 			continue;
-		evep = &epollop->fds[fd];
-
+		evep = &epollop->fds[fd];  //发生该事件的文件描述符的事件类型（2个事件类型读、写）
+        //该文件描述符被挂断或发生错误（读事件应该是用来注销该文件描述符上的事件，这里不明白激活写事件是要干嘛）
 		if (what & (EPOLLHUP|EPOLLERR)) {
 			evread = evep->evread;
 			evwrite = evep->evwrite;
 		} else {
-			if (what & EPOLLIN) {
-				evread = evep->evread;
+			if (what & EPOLLIN) {  //该文件描述符可以读（包括对端SOCKET正常关闭）
+				evread = evep->evread;  //记录这个读事件
 			}
 
-			if (what & EPOLLOUT) {
-				evwrite = evep->evwrite;
+			if (what & EPOLLOUT) {   //文件描述符可以写
+				evwrite = evep->evwrite;   //记录这个写事件
 			}
 		}
 
-		if (!(evread||evwrite))
+		if (!(evread||evwrite))   //如果没有读或写事件发生，跳过该文件描述符的事件
 			continue;
-
-		if (evread != NULL)
+        
+		if (evread != NULL)      //如果前面记录了读事件，将该事件插入到激活链表，且调用事件回调次数设为1
 			event_active(evread, EV_READ, 1);
-		if (evwrite != NULL)
+		if (evwrite != NULL)    //如果前面记录了读事件，将该事件插入到激活链表，且调用事件回调次数设为1
 			event_active(evwrite, EV_WRITE, 1);
 	}
 
-	if (res == epollop->nevents && epollop->nevents < MAX_NEVENTS) {
+	if (res == epollop->nevents && epollop->nevents < MAX_NEVENTS) {  　//监听到的事件数量达到了分配的缓存上限，但没有达到MAX_NEVENTS，说明我们的缓存数组不够用了，扩充缓存监听事件的数组
 		/* We used all of the event space this time.  We should
 		   be ready for more events next time. */
 		int new_nevents = epollop->nevents * 2;
@@ -260,7 +261,7 @@ epoll_dispatch(struct event_base *base, void *arg, struct timeval *tv)
 	return (0);
 }
 
-
+//参数1：base->evbase
 static int
 epoll_add(void *arg, struct event *ev)
 {
@@ -273,38 +274,42 @@ epoll_add(void *arg, struct event *ev)
 		return (evsignal_add(ev));
 
 	fd = ev->ev_fd;
+	//如果这个要注册事件的文件描述符值超过已分配的文件描述符数组长度，调用realloc扩充epollop->fds的分配内存×2，直到这个值小于数组长度。将扩充部分置为0
 	if (fd >= epollop->nfds) {
 		/* Extent the file descriptor array as necessary */
 		if (epoll_recalc(ev->ev_base, epollop, fd) == -1)
 			return (-1);
 	}
-	evep = &epollop->fds[fd];
+	evep = &epollop->fds[fd]; //这里返回epollop的内存，该内存初始为空，会在后面赋值ev
 	op = EPOLL_CTL_ADD;
 	events = 0;
+	//该文件描述符已经存在读事件，修改时保留读事件
 	if (evep->evread != NULL) {
 		events |= EPOLLIN;
 		op = EPOLL_CTL_MOD;
 	}
+	//该文件描述符已经存在写事件，修改时保留写事件
 	if (evep->evwrite != NULL) {
 		events |= EPOLLOUT;
 		op = EPOLL_CTL_MOD;
 	}
-
+    //注册事件如果需要注册读事件，为该文件描述符添加读事件
 	if (ev->ev_events & EV_READ)
 		events |= EPOLLIN;
 	if (ev->ev_events & EV_WRITE)
 		events |= EPOLLOUT;
-
-	epev.data.fd = fd;
-	epev.events = events;
+    //epoll_event结构体设置两个值，epev.data.fd为event中保存的句柄，epev.events为事件类型
+	epev.data.fd = fd;   //监听的文件描述符
+	epev.events = events; //需要监听改文件描述符发生的事件
+	//将该文件描述符需要监听的事件注册到epoll
 	if (epoll_ctl(epollop->epfd, op, ev->ev_fd, &epev) == -1)
 			return (-1);
 
 	/* Update events responsible */
 	if (ev->ev_events & EV_READ)
-		evep->evread = ev;
+		evep->evread = ev;  //表明该文件描述符有读事件
 	if (ev->ev_events & EV_WRITE)
-		evep->evwrite = ev;
+		evep->evwrite = ev; //表明该文件描述符有写事件
 
 	return (0);
 }

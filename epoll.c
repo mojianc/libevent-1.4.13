@@ -207,7 +207,7 @@ epoll_dispatch(struct event_base *base, void *arg, struct timeval *tv)
 
 		evsignal_process(base); // 处理signal事件 
 		return (0);
-	} else if (base->sig.evsignal_caught) {  　//监听的某种信号产生并处理
+	} else if (base->sig.evsignal_caught) {    //监听的某种信号产生并处理
 		evsignal_process(base); // 处理signal事件 
 	}
 
@@ -244,7 +244,7 @@ epoll_dispatch(struct event_base *base, void *arg, struct timeval *tv)
 			event_active(evwrite, EV_WRITE, 1);
 	}
 
-	if (res == epollop->nevents && epollop->nevents < MAX_NEVENTS) {  　//监听到的事件数量达到了分配的缓存上限，但没有达到MAX_NEVENTS，说明我们的缓存数组不够用了，扩充缓存监听事件的数组
+	if (res == epollop->nevents && epollop->nevents < MAX_NEVENTS) {   //监听到的事件数量达到了分配的缓存上限，但没有达到MAX_NEVENTS，说明我们的缓存数组不够用了，扩充缓存监听事件的数组
 		/* We used all of the event space this time.  We should
 		   be ready for more events next time. */
 		int new_nevents = epollop->nevents * 2;

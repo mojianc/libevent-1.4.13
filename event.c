@@ -228,7 +228,7 @@ event_base_new(void)
 
 	/* allocate a single active event queue */
 	//为event_base实例base初始化激活链表优先级个数，1说明当前情况所有事件都是同一个优先级。这个函数可以多次调用
-　　//以修改优先级个数，需要先确保链表中没有已激活事件，否则会失败。
+        //以修改优先级个数，需要先确保链表中没有已激活事件，否则会失败。
 	event_base_priority_init(base, 1);
 
 	return (base);

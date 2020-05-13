@@ -167,6 +167,7 @@ event_init(void)
 	return (base);
 }
 
+//event_base 的作用，选定epoll，保存封装epoll函数的指针evsel，并调用init，epoll_create创建句柄，保存在evbase->epfd
 struct event_base *
 event_base_new(void)
 {
@@ -177,13 +178,18 @@ event_base_new(void)
 		event_err(1, "%s: calloc", __func__);
 
 	detect_monotonic();
+	/*检测第一个参数(event_base* base)base的缓存时间(base->tv_cache.tv_sec)是否为0.
+　　　1.不为0，第二个参数(timeval* tp)base->event_tv设置为base->tv_cache.
+　　　2.为0，第二个参数(timeval* tp)base->event_tv设置为当前时间。（我们刚初始化event_base所以这里是获取当前时间）
+    */
 	gettime(base, &base->event_tv);
-	
+	//初始化timeout小根堆,因为还没有事件，所以全部置为0
 	min_heap_ctor(&base->timeheap);
+	//初始化注册事件链表，TAILQ_INIT宏定义
 	TAILQ_INIT(&base->eventqueue);
 	base->sig.ev_signal_pair[0] = -1;
 	base->sig.ev_signal_pair[1] = -1;
-	
+	//在前面event_base中已经定义好的eventops[]中第一个可用的libevent封装好的I/O模式
 	base->evbase = NULL;
 	//libevent 根据系统配置和编译选项决定使用哪一种 I/O demultiplex 机制,而不支持在运行阶段 根据配置再次选择
 	for (i = 0; eventops[i] && !base->evbase; i++) {
@@ -221,6 +227,8 @@ event_base_new(void)
 			   base->evsel->name);
 
 	/* allocate a single active event queue */
+	//为event_base实例base初始化激活链表优先级个数，1说明当前情况所有事件都是同一个优先级。这个函数可以多次调用
+　　//以修改优先级个数，需要先确保链表中没有已激活事件，否则会失败。
 	event_base_priority_init(base, 1);
 
 	return (base);
@@ -287,6 +295,7 @@ event_base_free(struct event_base *base)
 }
 
 /* reinitialized the event base after a fork */
+//调用fork创建子进程以后，重新初始化子进程中的event_base *base
 int
 event_reinit(struct event_base *base)
 {
@@ -401,11 +410,12 @@ event_process_active(struct event_base *base)
 			event_del(ev);
 		
 		/* Allows deletes to work */
-		ncalls = ev->ev_ncalls;
+		ncalls = ev->ev_ncalls; //回调次数
 		ev->ev_pncalls = &ncalls;
 		while (ncalls) {
 			ncalls--;
 			ev->ev_ncalls = ncalls;
+			//执行回调函数
 			(*ev->ev_callback)((int)ev->ev_fd, ev->ev_res, ev->ev_arg);
 			if (base->event_break)
 				return;
@@ -547,9 +557,14 @@ event_base_loop(struct event_base *base, int flags)
 
 		/* clear time cache */
 		// 清空时间缓存
-		base->tv_cache.tv_sec = 0;
-        // 调用系统I/O demultiplexer等待就绪I/O events，可能是 epoll_wait，或者select等；   
-		// 在evsel->dispatch()中，会把就绪signal event、I/O event插入到 激活链表中 
+		base->tv_cache.tv_sec = 0; 
+		/**
+		 * 调用系统I/O demultiplexer等待就绪I/O events，可能是 epoll_wait，或者select等；   
+		 * 在evsel->dispatch()中，会把就绪signal event、I/O event插入到 激活链表中 
+		 * evsel->dispatch
+		 *    |--epoll_dispatch
+		 *       |--epoll_wait()
+		 */
 		res = evsel->dispatch(base, evbase, tv_p);
 
 		if (res == -1)
@@ -653,6 +668,7 @@ event_base_once(struct event_base *base, int fd, short events,
 	return (0);
 }
 /**
+ * event中包含有：current_base，callback回调函数，socket句柄，events事件类型
  * 初始化事件 event，设置回调函数和关注的事件 
  * ev：执行要初始化的 event 对象
  * fd：该 event 绑定的“句柄”，对于信号事件，它就是关注的信号； 
@@ -665,24 +681,24 @@ event_set(struct event *ev, int fd, short events,
 	  void (*callback)(int, short, void *), void *arg)
 {
 	/* Take the current base - caller needs to set the real base later */
-	ev->ev_base = current_base;
+	ev->ev_base = current_base;    //将这个事件绑定到event_base实例上，如果有多个event_base实例,之后可以调用event_base_set绑定到其他event_base实例上
 
-	ev->ev_callback = callback;
-	ev->ev_arg = arg;
-	ev->ev_fd = fd;
-	ev->ev_events = events;
-	ev->ev_res = 0;
-	ev->ev_flags = EVLIST_INIT;
-	ev->ev_ncalls = 0;
-	ev->ev_pncalls = NULL;
-
-	min_heap_elem_init(ev);
+	ev->ev_callback = callback;    //回调函数指针
+	ev->ev_arg = arg;              //传递给callback的参数
+	ev->ev_fd = fd;                //文件描述符
+	ev->ev_events = events;        //需要被监视的事件类型，读，写，超时，信号的组合，这里的定时器显然不是其中任何一个事件类型
+	ev->ev_res = 0;                //记录当前事件那个数据类型被激活
+	ev->ev_flags = EVLIST_INIT;    //标记这个事件已被初始化
+	ev->ev_ncalls = 0;             //callback调用次数0,一般这个值在将event插入激活链表时设置为1
+	ev->ev_pncalls = NULL;         //一般为指向ev_ncalls的指针或为NULL
+    
+	min_heap_elem_init(ev);    //只是将这个事件的小根堆索引设置为-1
 
 	/* by default, we put new events into the middle priority */
 	if(current_base)
-		ev->ev_pri = current_base->nactivequeues/2;
+		ev->ev_pri = current_base->nactivequeues/2;   //设置这个事件的优先级为中等
 }
-
+//event中保存中base
 int
 event_base_set(struct event_base *base, struct event *ev)
 {
@@ -749,7 +765,7 @@ int
 event_add(struct event *ev, const struct timeval *tv)
 {
 	struct event_base *base = ev->ev_base; // 要注册到的event_base 
-	const struct eventop *evsel = base->evsel;
+	const struct eventop *evsel = base->evsel;//在前面event_init()及event_base结构中已经提到过，它指向某个封装好的I/O模式的结构体，其中存了该模式的5种接口的函数指针，和一个名称和一个标记
 	void *evbase = base->evbase;  // base使用的系统I/O策略 
 	int res = 0; 
 
@@ -777,11 +793,16 @@ event_add(struct event *ev, const struct timeval *tv)
 			1 + min_heap_size(&base->timeheap)) == -1)
 			return (-1);  /* ENOMEM == errno */
 	}
-    // 如果事件ev不在已注册或者激活链表中，则调用evbase注册事件 
+    //如果这个事件是读|写|信号，并且这个事件没有在注册链表也没有在已激活链表中。
 	if ((ev->ev_events & (EV_READ|EV_WRITE|EV_SIGNAL)) &&
 	    !(ev->ev_flags & (EVLIST_INSERTED|EVLIST_ACTIVE))) {
+		/**
+		 * res = evsel->add(evbase, ev);
+		 *     |--epoll_add
+		 *         |--epoll_ctl() //epoll插入或者删除事件
+		*/
 		res = evsel->add(evbase, ev);
-		if (res != -1)
+		if (res != -1) //如果注册成功，将这个event插入到已注册列表
 			event_queue_insert(base, ev, EVLIST_INSERTED);
 	}
 
@@ -789,7 +810,7 @@ event_add(struct event *ev, const struct timeval *tv)
 	 * we should change the timout state only if the previous event
 	 * addition succeeded.
 	 */
-	// 准备添加定时事件 
+	// //如果注册成功，且设置了超时时间,准备添加定时事件 
 	if (res != -1 && tv != NULL) {
 		struct timeval now;
 
@@ -825,7 +846,10 @@ event_add(struct event *ev, const struct timeval *tv)
 		event_debug((
 			 "event_add: timeout in %ld seconds, call %p",
 			 tv->tv_sec, ev->ev_callback));
-
+        /*将这个设定好的event注册到timeout链表中。
+　　　　　如果I/O或signal事件在event_add时带了超时属性，这里会分离出一个独立的超时事件？
+　　　　　这个超时事件和I/O或signal没有关系，纯粹的一个只执行一次的计时事件，而且执行的是I/O或signal的回调，我要这独立的超时事件有何用？
+　　　　　所以I/O或signal事件千万不能设置超时属性，不然明明I/O或signal事件没有发生却调用了他们的回调函数就尴尬了*/
 		event_queue_insert(base, ev, EVLIST_TIMEOUT);
 	}
 
@@ -1042,6 +1066,14 @@ event_queue_insert(struct event_base *base, struct event *ev, int queue)
 		break;
 	case EVLIST_ACTIVE:   // 就绪事件，加入激活链表 
 		base->event_count_active++;
+		/**#define TAILQ_INSERT_TAIL(head, elm, field)
+		 * do {			\
+			(ev)->ev_active_next.tqe_next = NULL;					\
+			(ev)->ev_active_next.tqe_prev = (base->activequeues[ev->ev_pri])->tqh_last;			\
+			*(base->activequeues[ev->ev_pri])->tqh_last = (ev);					\
+			(base->activequeues[ev->ev_pri])->tqh_last = &(ev)->ev_active_next.tqe_next;			\
+		} while (0)
+		*/
 		TAILQ_INSERT_TAIL(base->activequeues[ev->ev_pri],
 		    ev,ev_active_next);
 		break;

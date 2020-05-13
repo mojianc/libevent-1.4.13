@@ -1,0 +1,93 @@
+
+struct eventop {
+	const char *name;
+	void *(*init)(struct event_base *);   // ��ʼ�� 
+	int (*add)(void *, struct event *);   // ע���¼� 
+	int (*del)(void *, struct event *);   // ɾ���¼� 
+	int (*dispatch)(struct event_base *, void *, struct timeval *);  // �¼��ַ�  
+	void (*dealloc)(struct event_base *, void *);   // ע�����ͷ���Դ 
+	/* set if we need to reinitialize the event base */
+	int need_reinit;
+};
+
+
+base->evsel = epollops
+const struct eventop epollops = {
+	"epoll",
+	epoll_init,
+	epoll_add,
+	epoll_del,
+	epoll_dispatch,
+	epoll_dealloc,
+	1  // need reinit 
+};
+
+base->evbase = epollops->epoll_init() 初始化epoll,返回类型为epollop，如下：
+struct epollop {
+	struct evepoll *fds;
+	int nfds;
+	struct epoll_event *events;
+	int nevents;
+	int epfd;
+};
+
+
+
+
+struct epoll_event {
+    __uint32_t events; /* Epoll events */
+    epoll_data_t data{
+		typedef union epoll_data {
+		void *ptr;
+		int fd;
+		__uint32_t u32;
+		__uint64_t u64;
+		} epoll_data_t;
+	}
+};
+
+调用流程：
+event_base_new
+    |--base->evsel = eventops[i]; //获取eventop epoll类型
+	|--base->evbase = base->evsel->init(base);
+	    |--epoll_init
+		    |--epoll_create() //创建epoll句柄
+
+event_add
+    |--res = evsel->add(evbase, ev);
+	    |--epoll_add
+            |--epoll_ctl() //epoll插入或者删除事件
+
+
+event_base_dispatch
+    |--event_base_loop
+	    |--res = evsel->dispatch(base, evbase, tv_p);
+		    |--epoll_dispatch
+			    |--epoll_wait()；//返回epoll的事件集合
+        |--event_process_active  //有激活事件，开始处理
+
+
+
+epoll使用：
+(1) int fd = epoll_create(int size); 只是在内核初始化一下数据结构然后返回个 fd
+(2)epoll_ctl(fd, 
+          EPOLL_CTL_ADD,   支持添加移除 fd
+		  socket句柄，
+		  epoll_event evet((EPOLLIN | EPOLLET),  data.ptr);
+		
+在狂想中data.ptr = connection，connection中有read和write回调函数
+
+(3)int size = epoll_wait(fd, event[], maxevents, timeout)
+event[] 是返回事件的集合， size是集合的个数 
+
+
+
+libevent使用方法：
+服务器端：
+（1）struct event_base* base = event_base_new(); 
+（2）int listener = tcp_server_init(9999, 10); 
+    //添加监听客户端请求连接事件  
+    struct event* ev_listen = event_new(base, listener, EV_READ | EV_PERSIST,  
+                                        accept_cb, base);
+（3）event_add(ev_listen, NULL);  
+（4）event_base_dispatch(base);  

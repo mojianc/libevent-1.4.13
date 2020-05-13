@@ -34,7 +34,17 @@ extern "C" {
 #include "config.h"
 #include "min_heap.h"
 #include "evsignal.h"
-
+//实例对象为： epollops
+/*const struct eventop epollops = {
+	"epoll",
+	epoll_init,
+	epoll_add,
+	epoll_del,
+	epoll_dispatch,
+	epoll_dealloc,
+	1  // need reinit 
+};
+*/
 struct eventop {
 	const char *name;
 	void *(*init)(struct event_base *);   // 初始化 
@@ -47,8 +57,20 @@ struct eventop {
 };
 
 struct event_base {
-	const struct eventop *evsel;
-	void *evbase;
+	/*evsel指向了全局变量static const struct eventop *eventops[]中的第一个可用I/O。
+　　　*libevent将系统提供的I/O demultiplex机制统一封装成了eventop结构；因此eventops[]包含了select、poll、kequeue和epoll等等其中的若干个全局实例对象。
+     */
+	const struct eventop *evsel;  //封装epoll的函数
+	void *evbase;           //struct epollop
+	                        /**
+							 * struct epollop {
+								struct evepoll *fds;       
+								int nfds;                   
+								struct epoll_event *events;
+								int nevents;               //事件个数
+								int epfd;                  //epoll_create()返回的句柄
+							 };
+							*/
 	int event_count;		/* counts number of total events */
 	int event_count_active;	/* counts number of active events */
 
@@ -56,16 +78,22 @@ struct event_base {
 	int event_break;		/* Set to terminate loop immediately */
 
 	/* active event management */
+	//一个二级指针，前面讲过libevent支持事件优先级，因此你可以把它看作是数组，其中的元素activequeues[priority]是一个链表，链表的每个节点指向一个优先级为priority的就绪事件event
+	/** struct event_list {								
+			struct event *tqh_first;   //第一个元素		 
+			struct event **tqh_last;	 //最后一个元素的地址	
+	    }  
+	*/
 	struct event_list **activequeues;
-	int nactivequeues;
+	int nactivequeues;   /*指明已激活事件链表有多少个优先级*/
 
 	/* signal handling info */
 	struct evsignal_info sig;
 
-	struct event_list eventqueue;
+	struct event_list eventqueue;   /*链表，保存了所有的注册事件event的指针。*/
 	struct timeval event_tv;
 
-	struct min_heap timeheap;
+	struct min_heap timeheap;  //管理定时事件的小根堆,最先达到超时的事件总是在第一个位置上
 
 	struct timeval tv_cache;
 };
